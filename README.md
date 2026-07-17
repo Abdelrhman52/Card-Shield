@@ -302,38 +302,48 @@ Fields derived from `Fraud.csv`:
 - The MySQL root password, Airflow Fernet key, and Slack webhook URL must be treated as secrets.
 - For production, enable Kafka SSL/SASL and HBase Kerberos authentication.
 
-
+---
 
 ## Fraud.csv - Credit Card Transaction Data
-This CSV file contains 6,362,620 synthetic credit card transactions spanning 743 hours (approximately 30 days). The dataset is designed for binary classification tasks to detect fraudulent transactions.
 
-# Column Summary:
-step (int): Hour of the transaction (1-743)
-type (categorical): Transaction type - PAYMENT, TRANSFER, CASH_OUT, DEBIT, or CASH_IN
-amount (float): Transaction amount in local currency
-nameOrig (string): Customer ID initiating the transaction
-**oldbalanceOrg (float)**: Origin account balance before transaction
-**newbalanceOrig (float)**: Origin account balance after transaction
-**nameDest (string)**: Recipient customer ID
-**oldbalanceDest (float)**: Recipient account balance before transaction
-**newbalanceDest (float)**: Recipient account balance after transaction
-**isFraud (binary)**: Target variable - 1 for fraudulent, 0 for legitimate
-**isFlaggedFraud (binary)**: System flag for suspicious high-value transfers (>200,000)
+This dataset contains **6,362,620 synthetic credit card transactions** collected over **743 hours (approximately 30 days)**. It is designed for **binary classification** tasks to detect fraudulent credit card transactions.
 
-## Key Characteristics:
-**Format**: CSV with 11 columns
-**Size**: 493.53 MB
-**Class Distribution**: Highly imbalanced - 0.13% fraud (8,213 cases), 99.87% legitimate (6,354,407 cases)
-**Missing Values**: None
-**Data Type**: Fully synthetic for research and educational purposes
+### Column Summary
 
-## Dataset
+| Column | Type | Description |
+|--------|------|-------------|
+| `step` | Integer | Hour of the transaction (1–743) |
+| `type` | Categorical | Transaction type (`PAYMENT`, `TRANSFER`, `CASH_OUT`, `DEBIT`, `CASH_IN`) |
+| `amount` | Float | Transaction amount in local currency |
+| `nameOrig` | String | Customer ID initiating the transaction |
+| `oldbalanceOrg` | Float | Origin account balance before the transaction |
+| `newbalanceOrig` | Float | Origin account balance after the transaction |
+| `nameDest` | String | Recipient customer ID |
+| `oldbalanceDest` | Float | Recipient account balance before the transaction |
+| `newbalanceDest` | Float | Recipient account balance after the transaction |
+| `isFraud` | Binary | Target variable (`1` = Fraud, `0` = Legitimate) |
+| `isFlaggedFraud` | Binary | System flag for suspicious high-value transfers (> 200,000) |
 
-The project uses the **Credit Card Fraud Dataset** from Kaggle (6.36 million transactions).
+### Dataset Characteristics
 
-**Dataset Link:**
+- **Format:** CSV
+- **Number of Columns:** 11
+- **Number of Rows:** 6,362,620
+- **File Size:** 493.53 MB
+- **Fraud Cases:** 8,213 (0.13%)
+- **Legitimate Cases:** 6,354,407 (99.87%)
+- **Missing Values:** None
+- **Data Type:** Fully synthetic (research and educational purposes)
+
+### Dataset Source
+
+This project uses the **Credit Card Fraud Dataset** available on Kaggle.
+
+🔗 **Dataset:**  
 https://www.kaggle.com/datasets/dylanmoraes/credit-card-fraud-dataset
 
-Or as a clickable link:
+Or click here:
 
-[Credit Card Fraud Dataset (Kaggle)](https://www.kaggle.com/datasets/dylanmoraes/credit-card-fraud-dataset)
+**[Credit Card Fraud Dataset (Kaggle)](https://www.kaggle.com/datasets/dylanmoraes/credit-card-fraud-dataset)**
+
+
