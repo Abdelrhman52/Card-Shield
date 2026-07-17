@@ -1,0 +1,20 @@
+{
+  "type": "record",
+  "name": "CreditCardTransaction",
+  "namespace": "com.cardshield.avro",
+  "doc": "Avro schema for a single credit card transaction event from the Fraud.csv dataset.",
+  "fields": [
+    { "name": "step",               "type": "int",    "doc": "Hour of the transaction (1-743)." },
+    { "name": "type",               "type": { "type": "enum", "name": "TransactionType", "symbols": ["PAYMENT","TRANSFER","CASH_OUT","DEBIT","CASH_IN"] } },
+    { "name": "amount",             "type": "double", "doc": "Transaction amount in local currency." },
+    { "name": "nameOrig",           "type": "string", "doc": "Customer ID initiating the transaction." },
+    { "name": "oldbalanceOrg",      "type": "double" },
+    { "name": "newbalanceOrig",     "type": "double" },
+    { "name": "nameDest",           "type": "string", "doc": "Recipient customer ID." },
+    { "name": "oldbalanceDest",     "type": "double" },
+    { "name": "newbalanceDest",     "type": "double" },
+    { "name": "isFraud",            "type": "int",    "doc": "1 = fraudulent, 0 = legitimate." },
+    { "name": "isFlaggedFraud",     "type": "int",    "doc": "1 = system-flagged suspicious, 0 = not flagged." },
+    { "name": "ingestion_timestamp_ms", "type": "long", "logicalType": "timestamp-millis" }
+  ]
+}

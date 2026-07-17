@@ -1,0 +1,52 @@
+################################################################################
+# CardShield — Flink Configuration
+# Applied via FLINK_PROPERTIES environment variable in docker-compose.yml
+# or placed at $FLINK_HOME/conf/flink-conf.yaml in a standalone cluster.
+################################################################################
+
+# ------- Job Manager -------
+jobmanager.rpc.address: flink-jobmanager
+jobmanager.rpc.port: 6123
+jobmanager.memory.process.size: 2048m
+jobmanager.bind-host: 0.0.0.0
+
+# ------- Task Manager -------
+taskmanager.bind-host: 0.0.0.0
+taskmanager.host: flink-taskmanager
+taskmanager.memory.process.size: 4096m
+taskmanager.numberOfTaskSlots: 4
+
+# ------- State Backend: RocksDB -------
+state.backend: rocksdb
+state.backend.rocksdb.localdir: /tmp/rocksdb
+state.checkpoints.dir: file:///flink/checkpoints
+state.savepoints.dir: file:///flink/savepoints
+state.backend.incremental: true
+
+# ------- Checkpointing -------
+execution.checkpointing.interval: 30000        # 30 seconds
+execution.checkpointing.mode: EXACTLY_ONCE
+execution.checkpointing.timeout: 60000         # 60 seconds
+execution.checkpointing.min-pause: 5000
+execution.checkpointing.max-concurrent-checkpoints: 1
+execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+
+# ------- Restart Strategy -------
+restart-strategy: fixed-delay
+restart-strategy.fixed-delay.attempts: 5
+restart-strategy.fixed-delay.delay: 10 s
+
+# ------- Network / Parallelism -------
+parallelism.default: 4
+taskmanager.network.memory.fraction: 0.2
+
+# ------- Kafka Connector (via FLINK_PROPERTIES env in Docker) -------
+# All Kafka config is passed programmatically in fraud_job.py
+
+# ------- Web UI -------
+rest.port: 8081
+rest.bind-address: 0.0.0.0
+web.submit.enable: true
+
+# ------- Logging -------
+# Set via log4j2.properties — keep default INFO for production

@@ -1,0 +1,8 @@
+# CardShield Flink Job — Python dependencies
+# Tested with Python 3.11 + Apache Flink 1.19
+
+apache-flink==1.19.0
+fastavro==1.9.4
+confluent-kafka[avro]==2.4.0
+happybase==1.2.0
+python-dotenv==1.0.1
