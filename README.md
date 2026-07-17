@@ -5,6 +5,7 @@ Apache Kafka, Apache Flink, Apache HBase, Hadoop HDFS, and Apache Airflow.
 Serialization format: **Apache Avro** (via Confluent Schema Registry).
 Input dataset: **Fraud.csv** (6.3 M synthetic credit card transactions).
 
+
 ---
 
 ## Architecture
@@ -300,3 +301,39 @@ Fields derived from `Fraud.csv`:
 - Rotate all `.env` passwords before deploying to any shared environment.
 - The MySQL root password, Airflow Fernet key, and Slack webhook URL must be treated as secrets.
 - For production, enable Kafka SSL/SASL and HBase Kerberos authentication.
+
+
+
+## Fraud.csv - Credit Card Transaction Data
+This CSV file contains 6,362,620 synthetic credit card transactions spanning 743 hours (approximately 30 days). The dataset is designed for binary classification tasks to detect fraudulent transactions.
+
+# Column Summary:
+step (int): Hour of the transaction (1-743)
+type (categorical): Transaction type - PAYMENT, TRANSFER, CASH_OUT, DEBIT, or CASH_IN
+amount (float): Transaction amount in local currency
+nameOrig (string): Customer ID initiating the transaction
+**oldbalanceOrg (float)**: Origin account balance before transaction
+**newbalanceOrig (float)**: Origin account balance after transaction
+**nameDest (string)**: Recipient customer ID
+**oldbalanceDest (float)**: Recipient account balance before transaction
+**newbalanceDest (float)**: Recipient account balance after transaction
+**isFraud (binary)**: Target variable - 1 for fraudulent, 0 for legitimate
+**isFlaggedFraud (binary)**: System flag for suspicious high-value transfers (>200,000)
+
+## Key Characteristics:
+**Format**: CSV with 11 columns
+**Size**: 493.53 MB
+**Class Distribution**: Highly imbalanced - 0.13% fraud (8,213 cases), 99.87% legitimate (6,354,407 cases)
+**Missing Values**: None
+**Data Type**: Fully synthetic for research and educational purposes
+
+## Dataset
+
+The project uses the **Credit Card Fraud Dataset** from Kaggle (6.36 million transactions).
+
+**Dataset Link:**
+https://www.kaggle.com/datasets/dylanmoraes/credit-card-fraud-dataset
+
+Or as a clickable link:
+
+[Credit Card Fraud Dataset (Kaggle)](https://www.kaggle.com/datasets/dylanmoraes/credit-card-fraud-dataset)
