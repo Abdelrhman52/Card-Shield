@@ -1,0 +1,11 @@
+# CardShield Airflow DAG extra dependencies
+# Install inside the Airflow container or add to a custom Airflow image.
+# Base image: apache/airflow:2.9.2-python3.11
+
+apache-airflow==2.9.2
+confluent-kafka[avro]==2.4.0
+fastavro==1.9.4
+happybase==1.2.0
+requests==2.32.3
+python-dotenv==1.0.1
+mysqlclient==2.2.4

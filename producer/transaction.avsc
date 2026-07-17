@@ -1,0 +1,73 @@
+{
+  "type": "record",
+  "name": "CreditCardTransaction",
+  "namespace": "com.cardshield.avro",
+  "doc": "Avro schema for a single credit card transaction event from the Fraud.csv dataset.",
+  "fields": [
+    {
+      "name": "step",
+      "type": "int",
+      "doc": "Hour of the transaction (1-743, spanning ~30 days)."
+    },
+    {
+      "name": "type",
+      "type": {
+        "type": "enum",
+        "name": "TransactionType",
+        "symbols": ["PAYMENT", "TRANSFER", "CASH_OUT", "DEBIT", "CASH_IN"]
+      },
+      "doc": "Type of transaction."
+    },
+    {
+      "name": "amount",
+      "type": "double",
+      "doc": "Transaction amount in local currency."
+    },
+    {
+      "name": "nameOrig",
+      "type": "string",
+      "doc": "Customer ID initiating the transaction."
+    },
+    {
+      "name": "oldbalanceOrg",
+      "type": "double",
+      "doc": "Origin account balance before the transaction."
+    },
+    {
+      "name": "newbalanceOrig",
+      "type": "double",
+      "doc": "Origin account balance after the transaction."
+    },
+    {
+      "name": "nameDest",
+      "type": "string",
+      "doc": "Recipient customer ID."
+    },
+    {
+      "name": "oldbalanceDest",
+      "type": "double",
+      "doc": "Recipient account balance before the transaction."
+    },
+    {
+      "name": "newbalanceDest",
+      "type": "double",
+      "doc": "Recipient account balance after the transaction."
+    },
+    {
+      "name": "isFraud",
+      "type": "int",
+      "doc": "Target label: 1 = fraudulent, 0 = legitimate."
+    },
+    {
+      "name": "isFlaggedFraud",
+      "type": "int",
+      "doc": "System flag: 1 = suspicious high-value transfer (>200,000), 0 = not flagged."
+    },
+    {
+      "name": "ingestion_timestamp_ms",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Wall-clock timestamp (epoch ms) when the producer published this event."
+    }
+  ]
+}

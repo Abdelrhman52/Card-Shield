@@ -1,0 +1,391 @@
+##############################################################################
+# CardShield — Full Infrastructure Stack
+# Docker Compose v3.8
+#
+# Services:
+#   zookeeper         — ZooKeeper coordination for Kafka
+#   kafka             — Message broker (transaction event backbone)
+#   schema-registry   — Confluent Schema Registry for Avro schemas
+#   hadoop-namenode   — HDFS NameNode
+#   hadoop-datanode   — HDFS DataNode
+#   hbase             — Apache HBase (real-time blacklist/profile DB)
+#   flink-jobmanager  — Flink Job Manager
+#   flink-taskmanager — Flink Task Manager
+#   airflow-init      — One-time Airflow DB initializer
+#   airflow-scheduler — Airflow scheduler
+#   airflow-webserver — Airflow web UI
+#   mysql             — Monitoring/analytics staging database
+#
+# Recommended local resources:  >= 8 CPU cores, >= 16 GB RAM
+##############################################################################
+
+version: "3.8"
+
+networks:
+  cardshield-net:
+    driver: bridge
+
+volumes:
+  zookeeper-data:
+  zookeeper-log:
+  kafka-data:
+  hadoop-namenode-data:
+  hadoop-datanode-data:
+  hbase-data:
+  flink-checkpoints:
+  airflow-logs:
+  airflow-dags:
+  mysql-data:
+
+###############################################################################
+# SERVICES
+###############################################################################
+services:
+
+  # ---------------------------------------------------------------------------
+  # ZooKeeper — Kafka coordination (internal only)
+  # ---------------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: cardshield-zookeeper
+    hostname: zookeeper
+    networks:
+      - cardshield-net
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Kafka — Transaction event stream backbone
+  # Expose port 9092 for local testing; 29092 is internal broker address
+  # ---------------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: cardshield-kafka
+    hostname: kafka
+    networks:
+      - cardshield-net
+    ports:
+      - "9092:9092"       # External / local testing access
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168        # 7 days
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_NUM_PARTITIONS: 4
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Schema Registry — Confluent Avro schema registry
+  # Expose port 8081 for local schema inspection
+  # ---------------------------------------------------------------------------
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.1
+    container_name: cardshield-schema-registry
+    hostname: schema-registry
+    networks:
+      - cardshield-net
+    ports:
+      - "8081:8081"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Hadoop NameNode — HDFS master (internal only)
+  # ---------------------------------------------------------------------------
+  hadoop-namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: cardshield-namenode
+    hostname: namenode
+    networks:
+      - cardshield-net
+    ports:
+      - "9870:9870"       # HDFS Web UI (expose for local inspection)
+    environment:
+      CLUSTER_NAME: cardshield
+      CORE_CONF_fs_defaultFS: hdfs://namenode:8020
+      CORE_CONF_hadoop_http_staticuser_user: root
+      HDFS_CONF_dfs_replication: 1
+      HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check: "false"
+    volumes:
+      - hadoop-namenode-data:/hadoop/dfs/name
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9870"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Hadoop DataNode — HDFS storage node (internal only)
+  # ---------------------------------------------------------------------------
+  hadoop-datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: cardshield-datanode
+    hostname: datanode
+    networks:
+      - cardshield-net
+    depends_on:
+      hadoop-namenode:
+        condition: service_healthy
+    environment:
+      CORE_CONF_fs_defaultFS: hdfs://namenode:8020
+      HDFS_CONF_dfs_datanode_data_dir: /hadoop/dfs/data
+      HDFS_CONF_dfs_replication: 1
+    volumes:
+      - hadoop-datanode-data:/hadoop/dfs/data
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Apache HBase — Real-time fraud/blacklist database (internal only)
+  # Expose 16000 (master) and 16010 (web UI) for local inspection
+  # ---------------------------------------------------------------------------
+  hbase:
+    image: harisekhon/hbase:2.1
+    container_name: cardshield-hbase
+    hostname: hbase
+    networks:
+      - cardshield-net
+    ports:
+      - "16000:16000"     # HBase Master RPC
+      - "16010:16010"     # HBase Master Web UI
+      - "16020:16020"     # HBase RegionServer
+      - "2182:2182"       # HBase embedded ZooKeeper (alternative port)
+      - "9090:9090"       # HBase Thrift server (used by happybase clients)
+    environment:
+      HBASE_MANAGES_ZK: "true"
+    volumes:
+      - hbase-data:/hbase
+    healthcheck:
+      test: ["CMD", "hbase", "status", "simple"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Flink JobManager — Stream processing master
+  # Expose 8082 for Flink Web UI (8080 avoided to prevent conflicts)
+  # ---------------------------------------------------------------------------
+  flink-jobmanager:
+    build:
+        context: ./flink
+        dockerfile: Dockerfile
+
+    image: cardshield/flink-taskmanager:1.19.1-python3.11
+    container_name: cardshield-flink-jm
+    hostname: flink-jobmanager
+    networks:
+      - cardshield-net
+    ports:
+      - "8082:8081"       # Flink Web UI
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 2048m
+        state.backend: rocksdb
+        state.checkpoints.dir: file:///flink/checkpoints
+        execution.checkpointing.interval: 30000
+        execution.checkpointing.mode: EXACTLY_ONCE
+    volumes:
+      - flink-checkpoints:/flink/checkpoints
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/overview"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Flink TaskManager — Stream processing worker
+  # ---------------------------------------------------------------------------
+  flink-taskmanager:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
+    image: cardshield/flink-taskmanager:1.19.1-python3.11
+    container_name: cardshield-flink-tm
+    hostname: flink-taskmanager
+    networks:
+      - cardshield-net
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.memory.process.size: 4096m
+        taskmanager.numberOfTaskSlots: 4
+        state.backend: rocksdb
+        state.checkpoints.dir: file:///flink/checkpoints
+    volumes:
+      - flink-checkpoints:/flink/checkpoints
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Airflow — One-time DB init
+  # ---------------------------------------------------------------------------
+  airflow-init:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: cardshield/airflow:2.9.2-python3.11
+    container_name: cardshield-airflow-init
+    networks:
+      - cardshield-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: mysql+mysqldb://${MYSQL_AIRFLOW_USER}:${MYSQL_AIRFLOW_PASSWORD}@mysql:3306/${MYSQL_AIRFLOW_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      _AIRFLOW_DB_UPGRADE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USER}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+    entrypoint: /bin/bash
+    command: >
+      -c "airflow db init &&
+          airflow users create --username ${AIRFLOW_ADMIN_USER} --firstname Admin --lastname User
+          --role Admin --email admin@cardshield.local --password ${AIRFLOW_ADMIN_PASSWORD} || true"
+
+  # ---------------------------------------------------------------------------
+  # Airflow Scheduler — DAG execution engine
+  # ---------------------------------------------------------------------------
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: cardshield/airflow:2.9.2-python3.11
+    container_name: cardshield-airflow-scheduler
+    hostname: airflow-scheduler
+    networks:
+      - cardshield-net
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: mysql+mysqldb://${MYSQL_AIRFLOW_USER}:${MYSQL_AIRFLOW_PASSWORD}@mysql:3306/${MYSQL_AIRFLOW_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__SMTP__SMTP_HOST: ${SMTP_HOST}
+      AIRFLOW__SMTP__SMTP_PORT: ${SMTP_PORT}
+      AIRFLOW__SMTP__SMTP_MAIL_FROM: ${SMTP_FROM}
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+      - ./airflow/dags:/opt/airflow/dags   # mount local DAGs
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--local"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Airflow Webserver — Web UI (expose port 8083 to avoid conflicts)
+  # ---------------------------------------------------------------------------
+  airflow-webserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    image: cardshield/airflow:2.9.2-python3.11
+    container_name: cardshield-airflow-web
+    hostname: airflow-webserver
+    networks:
+      - cardshield-net
+    ports:
+      - "8083:8080"       # Airflow Web UI
+    depends_on:
+      airflow-scheduler:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: mysql+mysqldb://${MYSQL_AIRFLOW_USER}:${MYSQL_AIRFLOW_PASSWORD}@mysql:3306/${MYSQL_AIRFLOW_DB}
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - airflow-dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+      - ./airflow/dags:/opt/airflow/dags
+    command: webserver
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # MySQL — Monitoring/analytics staging database
+  # Expose 3306 for local Power BI / DBeaver connections
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: cardshield-mysql
+    hostname: mysql
+    networks:
+      - cardshield-net
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_MONITORING_DB}
+      MYSQL_USER: ${MYSQL_MONITORING_USER}
+      MYSQL_PASSWORD: ${MYSQL_MONITORING_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./mysql/kpi_queries.sql:/docker-entrypoint-initdb.d/02_kpi.sql
+      - ./mysql/airflow_db_init.sql:/docker-entrypoint-initdb.d/00_airflow_db.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped

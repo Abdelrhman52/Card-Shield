@@ -1,0 +1,29 @@
+{
+  "name": "CardShield_RealTime_Ops",
+  "defaultMode": "PushStreaming",
+  "tables": [
+    {
+      "name": "Transactions",
+      "columns": [
+        { "name": "Time",             "dataType": "DateTime" },
+        { "name": "Transaction_ID",   "dataType": "string" },
+        { "name": "Card_Mask",        "dataType": "string" },
+        { "name": "Amount",           "dataType": "number" },
+        { "name": "Country",         "dataType": "string" },
+        { "name": "Status",           "dataType": "string" },
+        { "name": "Score",            "dataType": "number" },
+        { "name": "Rule",             "dataType": "string" },
+        { "name": "isFraud",          "dataType": "number" }
+      ]
+    },
+    {
+      "name": "SystemHealth",
+      "columns": [
+        { "name": "Time",              "dataType": "DateTime" },
+        { "name": "System_Component",  "dataType": "string" },
+        { "name": "Component_Status",  "dataType": "string" },
+        { "name": "Latency_ms",         "dataType": "number" }
+      ]
+    }
+  ]
+}

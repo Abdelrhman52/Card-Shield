@@ -1,0 +1,12 @@
+# CardShield Kafka Avro Producer — Python dependencies
+# Tested with Python 3.11
+
+# Kafka client with Avro/Schema Registry support
+confluent-kafka[avro]==2.4.0
+fastavro==1.9.4
+
+# Apache Avro (for local schema parsing/validation)
+avro==1.11.3
+
+# Utilities
+python-dotenv==1.0.1
