@@ -1,0 +1,178 @@
+##############################################################################
+# CardShield — HBase DDL Shell Script
+#
+# Purpose : Creates Blacklist and UserProfiles tables with production-ready
+#           row key salting, column families, pre-splitting, and TTL settings.
+#
+# Usage   : hbase shell create_tables.hbase
+#           (inside the HBase container or via `docker exec cardshield-hbase`)
+##############################################################################
+
+# =============================================================================
+# Helper: disable + drop if already exists (safe re-run)
+# =============================================================================
+if exists('Blacklist')
+  disable 'Blacklist'
+  drop 'Blacklist'
+end
+
+if exists('UserProfiles')
+  disable 'UserProfiles'
+  drop 'UserProfiles'
+end
+
+if exists('FraudAlerts')
+  disable 'FraudAlerts'
+  drop 'FraudAlerts'
+end
+
+# =============================================================================
+# TABLE: Blacklist
+#
+# Purpose  : Stores known-fraudulent card IDs and blocked accounts.
+#            Flink performs a synchronous HBase Get on every transaction
+#            against this table before applying any other rule.
+#
+# Row Key  : SALT_CARDID
+#            - SALT  : 2-hex-digit hash prefix (00-FF) derived from CARDID
+#                      to distribute writes evenly across 16 pre-split regions.
+#            - CARDID: the nameOrig / nameDest customer/card identifier.
+#
+# Example row key: "a3_C1234567890"
+#
+# Column Families:
+#   info     — card identity attributes (TTL = forever, max_versions = 1)
+#   audit    — when/why the card was blacklisted (TTL = 730 days = 2 years)
+# =============================================================================
+create 'Blacklist',
+  { NAME => 'info',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => true,
+    IN_MEMORY   => true,         # Hot table — keep in block cache
+    VERSIONS    => 1,
+    DATA_BLOCK_ENCODING => 'FAST_DIFF'
+  },
+  { NAME => 'audit',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => true,
+    VERSIONS    => 5,
+    TTL         => 63072000      # 730 days in seconds
+  },
+  SPLITS => ['10','20','30','40','50','60','70','80','90','a0','b0','c0','d0','e0','f0']
+
+# Sample PUT operations for Blacklist:
+# put 'Blacklist', 'a3_C1234567890', 'info:card_id',       'C1234567890'
+# put 'Blacklist', 'a3_C1234567890', 'info:block_reason',  'CONFIRMED_FRAUD'
+# put 'Blacklist', 'a3_C1234567890', 'info:is_active',     '1'
+# put 'Blacklist', 'a3_C1234567890', 'audit:blacklisted_at','2026-07-01T00:00:00Z'
+# put 'Blacklist', 'a3_C1234567890', 'audit:source',       'FLINK_RULE_ENGINE'
+# put 'Blacklist', 'a3_C1234567890', 'audit:analyst_id',   'auto'
+
+# Sample GET operation:
+# get 'Blacklist', 'a3_C1234567890'
+
+# =============================================================================
+# TABLE: UserProfiles
+#
+# Purpose  : Stores per-cardholder behavioral and account profiles used by
+#            Flink for velocity checks, anomaly scoring, and credit limit
+#            enforcement. Updated by Flink after every processed transaction.
+#
+# Row Key  : SALT_CARDID_YYYYMM
+#            - SALT   : 2-hex-digit prefix (same salt strategy as Blacklist)
+#            - CARDID : nameOrig customer identifier
+#            - YYYYMM : month bucket to bound row growth
+#
+# Example row key: "5f_C9876543210_202607"
+#
+# Column Families:
+#   account  — balance, credit limit, account type (VERSIONS=1, permanent)
+#   stats    — rolling aggregates: spend sum, tx count, avg amount (VERSIONS=3)
+#   geo      — last-seen country/city for geographic velocity checks (VERSIONS=10)
+#   risk     — risk score, anomaly flags, alert history (VERSIONS=20)
+# =============================================================================
+create 'UserProfiles',
+  { NAME => 'account',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => true,
+    VERSIONS    => 1,
+    DATA_BLOCK_ENCODING => 'FAST_DIFF'
+  },
+  { NAME => 'stats',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => true,
+    VERSIONS    => 3,
+    TTL         => 7776000       # 90 days — rolling window
+  },
+  { NAME => 'geo',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => true,
+    VERSIONS    => 10,
+    TTL         => 2592000       # 30 days
+  },
+  { NAME => 'risk',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => false,
+    VERSIONS    => 20,
+    TTL         => 15552000      # 180 days
+  },
+  SPLITS => ['10','20','30','40','50','60','70','80','90','a0','b0','c0','d0','e0','f0']
+
+# Sample PUT operations for UserProfiles:
+# put 'UserProfiles', '5f_C9876543210_202607', 'account:card_id',      'C9876543210'
+# put 'UserProfiles', '5f_C9876543210_202607', 'account:credit_limit', '50000.00'
+# put 'UserProfiles', '5f_C9876543210_202607', 'account:currency',     'USD'
+# put 'UserProfiles', '5f_C9876543210_202607', 'stats:tx_count_5m',    '3'
+# put 'UserProfiles', '5f_C9876543210_202607', 'stats:amount_sum_5m',  '1500.00'
+# put 'UserProfiles', '5f_C9876543210_202607', 'stats:avg_amount',     '500.00'
+# put 'UserProfiles', '5f_C9876543210_202607', 'geo:last_country',     'EG'
+# put 'UserProfiles', '5f_C9876543210_202607', 'geo:last_city',        'Cairo'
+# put 'UserProfiles', '5f_C9876543210_202607', 'geo:last_tx_ts',       '1751400000000'
+# put 'UserProfiles', '5f_C9876543210_202607', 'risk:score',           '0.12'
+# put 'UserProfiles', '5f_C9876543210_202607', 'risk:flagged',         '0'
+
+# Sample GET (latest version only):
+# get 'UserProfiles', '5f_C9876543210_202607'
+
+# Sample SCAN (all profiles for a card — across month buckets):
+# scan 'UserProfiles', { STARTROW => '5f_C9876543210', STOPROW => '5f_C9876543210~' }
+
+# =============================================================================
+# TABLE: FraudAlerts
+#
+# Purpose  : Stores fraud alert events produced by the Flink rules engine.
+#            Used by the MySQL consumer for Power BI dashboard population.
+#
+# Row Key  : SALT_CARDID_TIMESTAMP_MS
+#            - SALT        : 2-hex-digit prefix
+#            - CARDID      : nameOrig
+#            - TIMESTAMP_MS: epoch milliseconds (descending sort: Long.MAX_VALUE - ts)
+#
+# Column Families:
+#   alert    — alert details, rule triggered, risk score (VERSIONS=1)
+#   tx       — snapshot of the triggering transaction (VERSIONS=1)
+# =============================================================================
+create 'FraudAlerts',
+  { NAME => 'alert',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => true,
+    VERSIONS    => 1,
+    TTL         => 31536000      # 365 days
+  },
+  { NAME => 'tx',
+    COMPRESSION => 'SNAPPY',
+    BLOCKCACHE  => false,
+    VERSIONS    => 1,
+    TTL         => 31536000
+  },
+  SPLITS => ['10','20','30','40','50','60','70','80','90','a0','b0','c0','d0','e0','f0']
+
+# Verify tables were created:
+list
+
+# Show table descriptions:
+describe 'Blacklist'
+describe 'UserProfiles'
+describe 'FraudAlerts'
+
+exit
