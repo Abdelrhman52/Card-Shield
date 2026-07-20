@@ -44,7 +44,7 @@ Fraud.csv
 ```
 cardshield/
 ├── docker-compose.yml          # Full infrastructure stack
-├── .env                        # Environment variable template → copy to .env
+├── .env                        # Environment variable template 
 ├── README.md                   # This file
 │
 ├── producer/                   # Kafka Avro transaction producer
